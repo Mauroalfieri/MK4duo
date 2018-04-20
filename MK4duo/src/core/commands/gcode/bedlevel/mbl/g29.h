@@ -61,7 +61,7 @@
       static bool enable_soft_endstops;
     #endif
 
-    const MeshLevelingState state = (MeshLevelingState)parser.byteval('S', (int8_t)MeshReport);
+    MeshLevelingState state = (MeshLevelingState)parser.byteval('S', (int8_t)MeshReport);
     if (state > 5) {
       SERIAL_MSG("S out of range (0-5).");
       return;
@@ -82,8 +82,11 @@
       case MeshStart:
         mbl.reset();
         mbl_probe_index = 0;
-        commands.enqueue_and_echo_P(lcd_wait_for_move ? PSTR("G29 S2") : PSTR("G28\nG29 S2"));
-        break;
+        if (!lcd_wait_for_move) {
+          commands.enqueue_and_echo_P(PSTR("G28\nG29 S2"));
+          return;
+        }
+        state = MeshNext;
 
       case MeshNext:
         if (mbl_probe_index < 0) {
@@ -100,7 +103,7 @@
           mechanics.do_blocking_move_to_z(0);
         }
         else {
-          // For G29 S2 after adjusting Z.
+          // Save Z for the previous mesh position
           mbl.set_zigzag_z(mbl_probe_index - 1, mechanics.current_position[Z_AXIS]);
           #if HAS_SOFTWARE_ENDSTOPS
             endstops.setSoftEndstop(enable_soft_endstops);
@@ -108,16 +111,14 @@
         }
         // If there's another point to sample, move there with optional lift.
         if (mbl_probe_index < GRID_MAX_POINTS) {
-          mbl.zigzag(mbl_probe_index, px, py);
-          bedlevel.manual_goto_xy(mbl.index_to_xpos[px], mbl.index_to_ypos[py]);
-
           #if HAS_SOFTWARE_ENDSTOPS
             // Disable software endstops to allow manual adjustment
             // If G29 is not completed, they will not be re-enabled
             endstops.setSoftEndstop(false);
           #endif
 
-          mbl_probe_index++;
+          mbl.zigzag(mbl_probe_index++, px, py);
+          bedlevel.manual_goto_xy(mbl.index_to_xpos[px], mbl.index_to_ypos[py]);
         }
         else {
           // One last "return to the bed" (as originally coded) at completion
@@ -198,7 +199,7 @@
 
     } // switch(state)
 
-    if (state == MeshStart || state == MeshNext) {
+    if (state == MeshNext) {
       SERIAL_MV("MBL G29 point ", min(mbl_probe_index, GRID_MAX_POINTS));
       SERIAL_EMV(" of ", int(GRID_MAX_POINTS));
     }

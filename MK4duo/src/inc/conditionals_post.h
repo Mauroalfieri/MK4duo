@@ -505,6 +505,21 @@
 
 // SD support
 #define HAS_SDSUPPORT       (ENABLED(SDSUPPORT))
+#if ENABLED(SDSUPPORT)
+  #define SD_MAX_FOLDER_DEPTH 5     // Maximum folder depth
+  // Number of VFAT entries used. Each entry has 13 UTF-16 characters
+  #if ENABLED(SCROLL_LONG_FILENAMES)
+    #define MAX_VFAT_ENTRIES (5)
+  #else
+    #define MAX_VFAT_ENTRIES (2)
+  #endif
+  #define FILENAME_LENGTH 13
+  /** Total size of the buffer used to store the long filenames */
+  #define LONG_FILENAME_LENGTH  (FILENAME_LENGTH * MAX_VFAT_ENTRIES + 1)
+  #define MAX_PATH_NAME_LENGHT  (LONG_FILENAME_LENGTH * SD_MAX_FOLDER_DEPTH + SD_MAX_FOLDER_DEPTH + 1)
+  #define SHORT_FILENAME_LENGTH 14
+  #define GENBY_SIZE 16
+#endif
 #if ENABLED(SDSUPPORT) && ENABLED(ARDUINO_ARCH_SAM)
   #undef SDCARD_SORT_ALPHA
   #undef SDSORT_LIMIT

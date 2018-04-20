@@ -1098,6 +1098,10 @@
 #define SDSORT_CACHE_VFATS 2      // Maximum number of 13-byte VFAT entries to use for sorting.
                                   // Note: Only affects SCROLL_LONG_FILENAMES with SDSORT_CACHE_NAMES but not SDSORT_DYNAMIC_RAM.
 
+// This function enable the firmware write recovery.bin file for recovering print when power loss
+//#define SD_RECOVERY_FILE        // Uncomment to enable
+#define SD_RECOVERY_FILE_TIME 2   // seconds between update
+
 // This enable the firmware to write statistics, that require frequent update on the SD card.
 //#define SD_SETTINGS             // Uncomment to enable
 #define SD_CFG_SECONDS 300        // seconds between update

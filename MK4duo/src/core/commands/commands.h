@@ -43,6 +43,17 @@ class Commands {
 
     static long gcode_LastN;
 
+    #if ENABLED(SD_RECOVERY_FILE)
+      #if MECH(DELTA)
+        #define APPEND_CMD_COUNT 2
+      #else
+        #define APPEND_CMD_COUNT 3
+      #endif
+      static char recovery[BUFSIZE + APPEND_CMD_COUNT][MAX_CMD_SIZE];
+      static int  recovery_index,
+                  recovery_count;
+    #endif
+
   private: /** Private Parameters */
 
     static long gcode_N;
@@ -70,8 +81,8 @@ class Commands {
 
     static bool enqueue_and_echo(const char* cmd, bool say_ok=false);
     static void enqueue_and_echo_P(const char * const pgcode);
-    static void enqueue_and_echo_now(const char* cmd, bool say_ok=false);
-    static void enqueue_and_echo_P_now(const char * const pgcode);
+    static void enqueue_and_echo_now(const char* cmd);
+    static void enqueue_and_echo_now_P(const char * const cmd);
 
     static void get_destination();
     static bool get_target_tool(const uint16_t code);
@@ -94,6 +105,10 @@ class Commands {
     static bool enqueue(const char* cmd, bool say_ok=false);
     static bool drain_injected_P();
 
+    #if ENABLED(SD_RECOVERY_FILE)
+      static void save_recovery_data();
+      static bool enqueue_recovery();
+    #endif
 };
 
 extern Commands commands;

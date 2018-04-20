@@ -131,7 +131,7 @@
       }
 
       // Fail if attempting move outside printable radius
-      if (endstops.isSoftEndstop() && !position_is_reachable(destination[X_AXIS], destination[Y_AXIS])) return true;
+      if (endstops.isSoftEndstop() && !mechanics.position_is_reachable(destination[X_AXIS], destination[Y_AXIS])) return true;
 
       // Get the linear distance in XYZ
       float cartesian_mm = SQRT(sq(difference[X_AXIS]) + sq(difference[Y_AXIS]) + sq(difference[Z_AXIS]));
@@ -509,9 +509,7 @@
   /**
    * Home Delta
    */
-  bool Delta_Mechanics::home(const bool always_home_all) {
-
-    UNUSED(always_home_all);
+  bool Delta_Mechanics::home() {
 
     if (printer.debugSimulation()) {
       LOOP_XYZ(axis) set_axis_is_at_home((AxisEnum)axis);

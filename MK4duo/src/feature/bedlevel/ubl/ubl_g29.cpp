@@ -289,7 +289,7 @@
     if (mechanics.axis_unhomed_error()) {
       const int8_t p_val = parser.intval('P', -1);
       if (p_val == 1 || p_val == 2 || p_val == 4 || parser.seen('J'))
-        mechanics.home(true);
+        mechanics.home();
     }
 
     // Invalidate Mesh Points. This command is a little bit asymmetrical because

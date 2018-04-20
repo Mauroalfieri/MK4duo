@@ -43,6 +43,12 @@ Commands commands;
 long  Commands::gcode_N             = 0,
       Commands::gcode_LastN         = 0;
 
+#if ENABLED(SD_RECOVERY_FILE)
+  char  Commands::recovery[BUFSIZE + APPEND_CMD_COUNT][MAX_CMD_SIZE];
+  int   Commands::recovery_index  = 0,
+        Commands::recovery_count  = 0;
+#endif
+
 bool Commands::send_ok[BUFSIZE];
 
 char Commands::buffer_ring[BUFSIZE][MAX_CMD_SIZE];
@@ -258,6 +264,10 @@ void Commands::get_serial() {
       }
     #endif
 
+    #if ENABLED(SD_RECOVERY_FILE)
+      if (enqueue_recovery()) return;
+    #endif
+
     /**
      * '#' stops reading from SD to the buffer prematurely, so procedural
      * macro calls are possible. If it occurs, stop_buffering is triggered
@@ -420,8 +430,12 @@ void Commands::advance_queue() {
         ok_to_send();
       }
     }
-    else
+    else {
       process_next();
+      #if ENABLED(SD_RECOVERY_FILE)
+        save_recovery_data();
+      #endif
+    }
 
   #else // !HAS_SDSUPPORT
 
@@ -437,19 +451,6 @@ void Commands::advance_queue() {
 }
 
 /**
- * Enqueue with Serial Echo
- */
-bool Commands::enqueue_and_echo(const char* cmd, bool say_ok/*=false*/) {
-  if (enqueue(cmd, say_ok)) {
-    SERIAL_SMT(ECHO, MSG_ENQUEUEING, cmd);
-    SERIAL_CHR('"');
-    SERIAL_EOL();
-    return true;
-  }
-  return false;
-}
-
-/**
  * Record one or many commands to run from program memory.
  * Aborts the current queue, if any.
  * Note: drain_injected_P() must be called repeatedly to drain the commands afterwards
@@ -462,15 +463,15 @@ void Commands::enqueue_and_echo_P(const char * const pgcode) {
 /**
  * Enqueue and return only when commands are actually enqueued
  */
-void Commands::enqueue_and_echo_now(const char* cmd, bool say_ok/*=false*/) {
-  while (!enqueue_and_echo(cmd, say_ok)) printer.idle();
+void Commands::enqueue_and_echo_now(const char* cmd) {
+  while (!enqueue_and_echo(cmd)) printer.idle();
 }
 
 /**
  * Enqueue from program memory and return only when commands are actually enqueued
  */
-void Commands::enqueue_and_echo_P_now(const char * const pgcode) {
-  enqueue_and_echo_P(pgcode);
+void Commands::enqueue_and_echo_now_P(const char * const cmd) {
+  enqueue_and_echo_P(cmd);
   while (drain_injected_P()) printer.idle();
 }
 
@@ -484,15 +485,6 @@ void Commands::clear_queue() {
 }
 
 /**
- * Once a new command is in the ring buffer, call this to commit it
- */
-void Commands::commit(bool say_ok) {
-  send_ok[buffer_index_w] = say_ok;
-  if (++buffer_index_w >= BUFSIZE) buffer_index_w = 0;
-  buffer_lenght++;
-}
-
-/**
  * Copy a command from RAM into the main command buffer.
  * Return true if the command was successfully added.
  * Return false for a full buffer, or if the 'command' is a comment.
@@ -502,24 +494,6 @@ bool Commands::enqueue(const char* cmd, bool say_ok/*=false*/) {
   strcpy(buffer_ring[buffer_index_w], cmd);
   commit(say_ok);
   return true;
-}
-
-/**
- * Inject the next "immediate" command, when possible, onto the front of the buffer_ring.
- * Return true if any immediate commands remain to inject.
- */
-bool Commands::drain_injected_P() {
-  if (injected_commands_P != NULL) {
-    size_t i = 0;
-    char c, cmd[30];
-    strncpy_P(cmd, injected_commands_P, sizeof(cmd) - 1);
-    cmd[sizeof(cmd) - 1] = '\0';
-    while ((c = cmd[i]) && c != '\n') i++; // find the end of this gcode command
-    cmd[i] = '\0';
-    if (enqueue_and_echo(cmd))     // success?
-      injected_commands_P = c ? injected_commands_P + i + 1 : NULL; // next command or done
-  }
-  return (injected_commands_P != NULL);    // return whether any more remain
 }
 
 /**
@@ -631,20 +605,6 @@ bool Commands::get_target_heater(int8_t &h) {
  * Private Function
  */
 
-void Commands::gcode_line_error(const char* err) {
-  SERIAL_STR(ER);
-  SERIAL_PS(err);
-  SERIAL_EV(gcode_LastN);
-  flush_and_request_resend();
-  serial_count = 0;
-}
-
-void Commands::unknown_error() {
-  SERIAL_SMV(ECHO, MSG_UNKNOWN_COMMAND, parser.command_ptr);
-  SERIAL_CHR('"');
-  SERIAL_EOL();
-}
-
 /* G0 and G1 are sent to the machine way more frequently than any other GCode.
  * We want to make sure that their use is optimized to its maximum.
  */
@@ -745,3 +705,112 @@ void Commands::process_next() {
 
   ok_to_send();
 }
+
+/**
+ * Once a new command is in the ring buffer, call this to commit it
+ */
+void Commands::commit(bool say_ok) {
+  send_ok[buffer_index_w] = say_ok;
+  if (++buffer_index_w >= BUFSIZE) buffer_index_w = 0;
+  buffer_lenght++;
+}
+
+void Commands::unknown_error() {
+  SERIAL_SMV(ECHO, MSG_UNKNOWN_COMMAND, parser.command_ptr);
+  SERIAL_CHR('"');
+  SERIAL_EOL();
+}
+
+void Commands::gcode_line_error(const char* err) {
+  SERIAL_STR(ER);
+  SERIAL_PS(err);
+  SERIAL_EV(gcode_LastN);
+  flush_and_request_resend();
+  serial_count = 0;
+}
+
+/**
+ * Enqueue with Serial Echo
+ */
+bool Commands::enqueue_and_echo(const char* cmd, bool say_ok/*=false*/) {
+  if (enqueue(cmd, say_ok)) {
+    SERIAL_SMT(ECHO, MSG_ENQUEUEING, cmd);
+    SERIAL_CHR('"');
+    SERIAL_EOL();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Inject the next "immediate" command, when possible, onto the front of the buffer_ring.
+ * Return true if any immediate commands remain to inject.
+ */
+bool Commands::drain_injected_P() {
+  if (injected_commands_P != NULL) {
+    size_t i = 0;
+    char c, cmd[30];
+    strncpy_P(cmd, injected_commands_P, sizeof(cmd) - 1);
+    cmd[sizeof(cmd) - 1] = '\0';
+    while ((c = cmd[i]) && c != '\n') i++; // find the end of this gcode command
+    cmd[i] = '\0';
+    if (enqueue_and_echo(cmd))     // success?
+      injected_commands_P = c ? injected_commands_P + i + 1 : NULL; // next command or done
+  }
+  return (injected_commands_P != NULL);    // return whether any more remain
+}
+
+#if ENABLED(SD_RECOVERY_FILE)
+
+  void Commands::save_recovery_data() {
+
+    static watch_t save_recovery_watch((SD_RECOVERY_FILE_TIME) * 1000UL);
+
+    if (card.cardOK && IS_SD_PRINTING && save_recovery_watch.elapsed()) {
+
+      printer.recovery_data.valid_head = random(1, 256);
+      printer.recovery_data.valid_foot = printer.recovery_data.valid_head;
+
+      LOOP_XYZE(i) printer.recovery_data.current_position[i] = mechanics.current_position[i];
+
+      #if HEATER_COUNT > 0
+        LOOP_HEATER()
+          printer.recovery_data.target_temperature[h] = heaters[h].target_temperature;
+      #endif
+
+      #if FAN_COUNT > 0
+        LOOP_FAN() printer.recovery_data.fan_speed[f] = fans[f].Speed;
+      #endif
+
+      printer.recovery_data.buffer_index_r = buffer_index_r;
+      printer.recovery_data.buffer_index_w = buffer_index_w;
+      printer.recovery_data.buffer_lenght = buffer_lenght;
+      memcpy(printer.recovery_data.buffer_ring, buffer_ring, sizeof(printer.recovery_data.buffer_ring));
+
+      if (!printer.recovery_data.just_recovery) {
+        card.getAbsFilename(printer.recovery_data.fileName);
+        printer.recovery_data.just_recovery = 0XFF;
+      }
+      printer.recovery_data.sdpos = card.getIndex();
+
+      card.open_recovery_file(O_CREAT | O_WRITE | O_TRUNC | O_SYNC);
+      if (card.save_recovery_data(&printer.recovery_data, sizeof(printer.recovery_data)) == -1)
+        SERIAL_EM("Write recovery file failed.");
+
+      save_recovery_watch.start();
+    }
+  }
+
+  bool Commands::enqueue_recovery() {
+    if (recovery_count > 0) {
+      if (enqueue(recovery[recovery_index])) {
+        recovery_index++;
+        recovery_count--;
+      }
+      return true;
+    }
+    else
+      return false;
+  }
+
+#endif

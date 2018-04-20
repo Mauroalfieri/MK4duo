@@ -25,33 +25,22 @@
 
 #if HAS_SDSUPPORT
 
-  /**
-   * SD Settings
-   */
-  enum cfgSD_ENUM {   // This need to be in the same order as cfgSD_KEY
-    SD_CFG_CPR,
-    SD_CFG_FIL,
-    SD_CFG_NPR,
-  #if HAS_POWER_CONSUMPTION_SENSOR
-    SD_CFG_PWR,
+  #if ENABLED(SD_SETTINGS)
+    /**
+     * SD Settings
+     */
+    enum cfgSD_ENUM {   // This need to be in the same order as cfgSD_KEY
+      SD_CFG_CPR,
+      SD_CFG_FIL,
+      SD_CFG_NPR,
+    #if HAS_POWER_CONSUMPTION_SENSOR
+      SD_CFG_PWR,
+    #endif
+      SD_CFG_TME,
+      SD_CFG_TPR,
+      SD_CFG_END // Leave this always as the last
+    };
   #endif
-    SD_CFG_TME,
-    SD_CFG_TPR,
-    SD_CFG_END // Leave this always as the last
-  };
-
-  #define SD_MAX_FOLDER_DEPTH 5     // Maximum folder depth
-  // Number of VFAT entries used. Each entry has 13 UTF-16 characters
-  #if ENABLED(SCROLL_LONG_FILENAMES)
-    #define MAX_VFAT_ENTRIES (5)
-  #else
-    #define MAX_VFAT_ENTRIES (2)
-  #endif
-  #define FILENAME_LENGTH 13
-  /** Total size of the buffer used to store the long filenames */
-  #define LONG_FILENAME_LENGTH (FILENAME_LENGTH * MAX_VFAT_ENTRIES + 1)
-  #define SHORT_FILENAME_LENGTH 14
-  #define GENBY_SIZE 16
 
   enum LsAction { LS_Count, LS_GetFilename };
 
@@ -73,10 +62,6 @@
                   lastDir,
                   workDirParents[SD_MAX_FOLDER_DEPTH];
 
-      #if ENABLED(SD_SETTINGS)
-        SdFile  settings_file;
-      #endif
-
       bool  saving,
             sdprinting,
             cardOK,
@@ -90,13 +75,25 @@
             layerHeight,
             filamentNeeded;
 
-      char  fileName[LONG_FILENAME_LENGTH * SD_MAX_FOLDER_DEPTH + SD_MAX_FOLDER_DEPTH + 1],
+      char  fileName[LONG_FILENAME_LENGTH],
             tempLongFilename[LONG_FILENAME_LENGTH + 1],
             generatedBy[GENBY_SIZE];
 
     private: /** Private Parameters */
 
       Sd2Card card;
+
+      #if ENABLED(SD_RECOVERY_FILE)
+        SdFile recovery_file;
+      #endif
+
+      #if HAS_EEPROM_SD
+        SdFile eeprom_file;
+      #endif
+
+      #if ENABLED(SD_SETTINGS)
+        SdFile settings_file;
+      #endif
 
       uint16_t  workDirDepth;
       millis_t  next_autostart_ms;
@@ -159,6 +156,7 @@
       void unmount();
       void ls();
       void getfilename(uint16_t nr, const char* const match=NULL);
+      void getAbsFilename(char* name);
       void startFileprint();
       void openAndPrintFile(const char* name);
       void stopSDPrint();
@@ -178,9 +176,20 @@
       int8_t updir();
       uint16_t get_num_Files();
 
+      #if ENABLED(SD_RECOVERY_FILE)
+        void open_recovery_file(const uint8_t oflag);
+        void close_recovery_file();
+        void delete_recovery_file();
+        bool exist_recovery_file();
+        int16_t save_recovery_data(const void* data, uint16_t size);
+        int16_t read_recovery_data(void* data, uint16_t size);
+      #endif
+
       #if HAS_EEPROM_SD
-        bool write_data(SdFile* currentfile, const uint8_t value);
-        uint8_t read_data(SdFile* currentfile);
+        bool open_eeprom_sd(const uint8_t oflag);
+        void close_eeprom_sd();
+        bool write_eeprom_data(const uint8_t value);
+        uint8_t read_eeprom_data();
       #endif
 
       void ResetDefault();
@@ -214,6 +223,7 @@
 
       FORCE_INLINE void pauseSDPrint() { sdprinting = false; }
       FORCE_INLINE void setIndex(uint32_t newpos) { sdpos = newpos; gcode_file.seekSet(sdpos); }
+      FORCE_INLINE uint32_t getIndex() { return sdpos; }
       FORCE_INLINE bool isFileOpen() { return gcode_file.isOpen(); }
       FORCE_INLINE bool eof() { return sdpos >= fileSize; }
       FORCE_INLINE int16_t get() { sdpos = gcode_file.curPosition(); return (int16_t)gcode_file.read(); }

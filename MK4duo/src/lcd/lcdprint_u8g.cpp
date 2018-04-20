@@ -21,6 +21,7 @@ extern U8GLIB *pu8g;
 #include "ultralcd.h"
 
 #include "fontutils.h"
+#include "u8g_fontutf8.h"
 #include "lcdprint.h"
 
 int lcd_glyph_height(void) {

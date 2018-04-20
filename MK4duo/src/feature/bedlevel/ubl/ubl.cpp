@@ -241,7 +241,7 @@
       if (!lcd) SERIAL_EOL();
 
       // A blank line between rows (unless compact)
-      if (j && human && !comp) SERIAL_ECHOLNPGM("   |");
+      if (j && human && !comp) SERIAL_EM("   |");
     }
 
     if (human) {

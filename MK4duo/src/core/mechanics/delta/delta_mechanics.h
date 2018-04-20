@@ -124,7 +124,7 @@
       /**
        * Home Delta
        */
-      static bool home(const bool always_home_all=true);
+      static bool home();
 
       /**
        * Set an axis' current position to its home position (after homing).

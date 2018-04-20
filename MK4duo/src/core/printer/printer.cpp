@@ -45,6 +45,10 @@ uint8_t Printer::progress = 0;
 // Inactivity shutdown
 watch_t Printer::max_inactivity_watch;
 
+#if ENABLED(SD_RECOVERY_FILE)
+  struct recovery_data_t Printer::recovery_data;
+#endif
+
 #if ENABLED(HOST_KEEPALIVE_FEATURE)
   watch_t Printer::host_keepalive_watch(DEFAULT_KEEPALIVE_INTERVAL * 1000UL);
 #endif
@@ -131,7 +135,7 @@ void Printer::setup() {
 
   #if HAS_POWER_SWITCH
     #if PS_DEFAULT_OFF
-      powerManager.power_off();
+      powerManager.recovery();
     #else
       powerManager.power_on();
     #endif
@@ -277,7 +281,7 @@ void Printer::setup() {
   setRunning(true);
 
   #if ENABLED(DELTA_HOME_ON_POWER)
-    mechanics.home(true);
+    mechanics.home();
   #endif
 
   #if FAN_COUNT > 0
@@ -288,6 +292,10 @@ void Printer::setup() {
 
   #if HAS_SDSUPPORT
     card.checkautostart(false);
+  #endif
+
+  #if HAS_SDSUPPORT && ENABLED(SD_RECOVERY_FILE)
+    init_recovery_data();
   #endif
 }
 
@@ -454,7 +462,7 @@ void Printer::kill(const char* lcd_msg) {
   #endif
 
   #if HAS_POWER_SWITCH
-    powerManager.power_off();
+    powerManager.recovery();
   #endif
 
   #if HAS_SUICIDE
@@ -868,6 +876,104 @@ void Printer::suicide() {
     OUT_WRITE(SUICIDE_PIN, LOW);
   #endif
 }
+
+#if HAS_SDSUPPORT && ENABLED(SD_RECOVERY_FILE)
+
+  void Printer::init_recovery_data() {
+
+    memset(&recovery_data, 0, sizeof(recovery_data));
+    memset(commands.recovery, 0, sizeof(commands.recovery));
+
+    if (!card.cardOK) {
+      card.mount();
+    }
+    else {
+      SERIAL_MSG("Init recovery infomation. Size: ");
+      SERIAL_EV((int)sizeof(recovery_data));
+
+      if (card.exist_recovery_file()) {
+        SERIAL_EM("Open recovery file!");
+        card.open_recovery_file(O_READ);
+        card.read_recovery_data(&recovery_data, sizeof(recovery_data));
+        card.close_recovery_file();
+
+        SERIAL_SMV(ECHO, " Init valid Head:", (int)recovery_data.valid_head);
+        SERIAL_EMV(" Foot:", (int)recovery_data.valid_foot);
+
+        if ((recovery_data.valid_head != 0) && (recovery_data.valid_head == recovery_data.valid_foot)) {
+
+          LCD_MESSAGEPGM("Recoveryng...");
+
+          char str_X[10], str_Y[10], str_Z[10], str_E[10];
+
+          ZERO(str_X);
+          ZERO(str_Y);
+          ZERO(str_Z);
+          ZERO(str_E);
+
+          dtostrf(recovery_data.current_position[X_AXIS], 1, 3, str_X);
+          dtostrf(recovery_data.current_position[Y_AXIS], 1, 3, str_Y);
+          dtostrf(recovery_data.current_position[Z_AXIS], 1, 3, str_Z);
+          dtostrf(recovery_data.current_position[E_AXIS], 1, 3, str_E);
+
+          #if MECH(DELTA)
+            mechanics.home();
+            sprintf_P(commands.recovery[0], PSTR("G0 X%s Y%s Z%s"), str_X, str_Y, str_Z);
+            strcpy(commands.recovery[1], PSTR("M117 Printing..."));
+          #else
+            mechanics.home(true, true, false);
+            setZHomed(true);
+            enable_Z();
+            sprintf_P(commands.recovery[0], PSTR("G92 Z%s E%s"), str_Z, str_E);
+            sprintf_P(commands.recovery[1], PSTR("G0 X%s Y%s Z%s"), str_X, str_Y, str_Z);
+            strcpy(commands.recovery[2], PSTR("M117 Printing..."));
+          #endif
+
+          commands.recovery_count = APPEND_CMD_COUNT;
+
+          uint8_t i = APPEND_CMD_COUNT;
+          while (recovery_data.buffer_lenght > 0) {
+            strcpy(commands.recovery[i++], recovery_data.buffer_ring[recovery_data.buffer_index_r]);
+            commands.recovery_count++;
+            recovery_data.buffer_lenght--;
+            recovery_data.buffer_index_r = (recovery_data.buffer_index_r + 1) % BUFSIZE;
+          }
+          for (i = 0; i < commands.recovery_count; i++) {
+            SERIAL_ET(commands.recovery[i]);
+          }
+
+          SERIAL_MT("sd file(file_name, sd_pos): ", recovery_data.fileName);
+          SERIAL_MV(", ", recovery_data.sdpos);
+          SERIAL_EOL();
+
+          #if HEATER_COUNT > 0
+            LOOP_HEATER() {
+              heaters[h].target_temperature = printer.recovery_data.target_temperature[h];
+              thermalManager.wait_heater(&heaters[h], true);
+            }
+          #endif
+
+          #if FAN_COUNT > 0
+            LOOP_FAN() fans[f].Speed = printer.recovery_data.fan_speed[f];
+          #endif
+
+          card.selectFile(recovery_data.fileName);
+          card.setIndex(recovery_data.sdpos);
+          card.startFileprint();
+          print_job_counter.start();
+        }
+        else {
+          if ((recovery_data.valid_head != 0) && (recovery_data.valid_head != recovery_data.valid_foot)) {
+            LCD_MESSAGEPGM("M117 RECOVERY INVALID DATA.");
+          }
+          memset(&recovery_data, 0, sizeof(recovery_data));
+          
+        }
+      }
+    }
+  }
+
+#endif
 
 /**
  * Private Function

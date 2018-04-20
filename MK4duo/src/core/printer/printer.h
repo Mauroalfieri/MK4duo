@@ -29,6 +29,23 @@
 #ifndef _PRINTER_H_
 #define _PRINTER_H_
 
+#if ENABLED(SD_RECOVERY_FILE)
+  struct recovery_data_t {
+    uint8_t valid_head;
+    char fileName[LONG_FILENAME_LENGTH];
+    float current_position[XYZE];
+    int16_t target_temperature[HEATER_COUNT];
+    uint8_t fan_speed[FAN_COUNT];
+    uint8_t buffer_index_r;
+    uint8_t buffer_index_w;
+    uint8_t buffer_lenght;
+    char buffer_ring[BUFSIZE][MAX_CMD_SIZE];
+    uint32_t sdpos;
+    uint8_t just_recovery;
+    uint8_t valid_foot;
+  };
+#endif
+
 constexpr const uint8_t debug_echo                = 1;
 constexpr const uint8_t debug_info                = 2;
 constexpr const uint8_t debug_error               = 4;
@@ -113,6 +130,10 @@ class Printer {
 
     static watch_t  max_inactivity_watch;
 
+    #if ENABLED(SD_RECOVERY_FILE)
+      static struct recovery_data_t recovery_data;
+    #endif
+
     #if ENABLED(HOST_KEEPALIVE_FEATURE)
       static watch_t  host_keepalive_watch;
     #endif
@@ -173,6 +194,10 @@ class Printer {
     static bool pin_is_protected(const pin_t pin);
 
     static void suicide();
+
+    #if ENABLED(SD_RECOVERY_FILE)
+      static void init_recovery_data();
+    #endif
 
     #if ENABLED(IDLE_OOZING_PREVENT)
       static void IDLE_OOZING_retract(bool retracting);
